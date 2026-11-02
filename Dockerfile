@@ -38,7 +38,7 @@ RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
     --mount=type=cache,id=gobuild-${TARGETOS}-${TARGETARCH},target=/root/.cache/go-build \
     GOPROXY=direct go install golang.org/x/tools/cmd/goimports@gopls/v0.20.0
 
-FROM infra AS manifests
+FROM infra AS download-runc
 ARG GIT_TAG
 ARG TREE_STATE
 ARG COMMIT
@@ -54,7 +54,14 @@ COPY ./go.mod ./go.sum ./main.go ./
 COPY ./manifests ./manifests
 RUN mkdir -p bin dist
 RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
-    ./scripts/download
+    if [ "${TARGETOS}" = linux ]; then ./scripts/download runc; else ./scripts/download hcsshim; fi
+FROM download-runc AS download-rootfs
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    if [ "${TARGETOS}" = linux ]; then ./scripts/download rootfs; fi
+FROM download-rootfs AS download-containerd
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod ./scripts/download containerd
+FROM download-containerd AS manifests
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod ./scripts/download charts
 
 
 FROM manifests AS validate
@@ -66,20 +73,64 @@ RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
     ./scripts/validate
 
 
-FROM manifests AS build
+FROM manifests AS build-source
 ARG GOCOVER
 ARG DEBUG
 COPY ./cmd ./cmd
 COPY ./tests ./tests
 COPY ./pkg ./pkg
+
+FROM build-source AS binary-package-graph
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    mkdir -p /out && GO=xx-go ./scripts/build graph > /out/package-graph.json
+
+FROM scratch AS binary-package-graph-result
+COPY --from=binary-package-graph /out/ /
+
+FROM build-source AS binary-package-cache
+ARG K3S_BUILD_PACKAGE
+ARG KUBERNETES_RUN_ID
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
     --mount=type=cache,id=gobuild-${TARGETOS}-${TARGETARCH},target=/root/.cache/go-build \
-    if [ "${TARGETOS}" = "linux" ]; then GO=xx-go ./scripts/build; else ./scripts/build; fi
+    [[ ${KUBERNETES_RUN_ID:-} =~ ^[A-Za-z0-9_][A-Za-z0-9_.+-]*$ ]] && \
+    GO=xx-go ./scripts/build cache
+
+FROM build-source AS build-cni
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    --mount=type=cache,id=gobuild-${TARGETOS}-${TARGETARCH},target=/root/.cache/go-build \
+    if [ "${TARGETOS}" = "linux" ]; then GO=xx-go ./scripts/build cni; else ./scripts/build cni; fi
+
+FROM build-cni AS build-server
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    --mount=type=cache,id=gobuild-${TARGETOS}-${TARGETARCH},target=/root/.cache/go-build \
+    if [ "${TARGETOS}" = "linux" ]; then GO=xx-go ./scripts/build k3s; else ./scripts/build k3s; fi
+
+FROM build-server AS build-shim
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    --mount=type=cache,id=gobuild-${TARGETOS}-${TARGETARCH},target=/root/.cache/go-build \
+    if [ "${TARGETOS}" = "linux" ]; then GO=xx-go ./scripts/build containerd-shim; else ./scripts/build windows-shims; fi
+
+FROM build-shim AS build-runc
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    --mount=type=cache,id=gobuild-${TARGETOS}-${TARGETARCH},target=/root/.cache/go-build \
+    if [ "${TARGETOS}" = "linux" ]; then GO=xx-go ./scripts/build runc; fi
+
+FROM build-runc AS package-prepare
 
 COPY ./contrib ./contrib
 RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
     --mount=type=cache,id=gobuild-${TARGETOS}-${TARGETARCH},target=/root/.cache/go-build \
-    if [ "${TARGETOS}" = "linux" ]; then GO=xx-go ./scripts/package-cli; else ./scripts/package-cli; fi
+    if [ "${TARGETOS}" = "linux" ]; then GO=xx-go ./scripts/package-cli prepare; else ./scripts/package-cli prepare; fi
+
+FROM package-prepare AS package-compress
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    ./scripts/package-cli compress
+
+FROM package-compress AS build
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    --mount=type=cache,id=gobuild-${TARGETOS}-${TARGETARCH},target=/root/.cache/go-build \
+    if [ "${TARGETOS}" = "linux" ]; then GO=xx-go ./scripts/package-cli binary; else ./scripts/package-cli binary; fi
 
 RUN ./scripts/binary_size_check.sh
 

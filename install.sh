@@ -46,7 +46,7 @@ set -o noglob
 #
 #   - INSTALL_K3S_ARTIFACT_URL
 #     URL prefix for K3s release artifacts.
-#     Default is https://github.com/k3s-io/k3s/releases/download
+#     Default is https://github.com/joshmouch/k3s/releases/download
 #
 #   - INSTALL_K3S_PR
 #     PR build of k3s to download from Github Artifacts.
@@ -99,7 +99,7 @@ set -o noglob
 #     Channel to use for fetching k3s download URL.
 #     Defaults to 'stable'.
 
-INSTALL_K3S_ARTIFACT_URL=${INSTALL_K3S_ARTIFACT_URL:-https://github.com/k3s-io/k3s/releases/download}
+INSTALL_K3S_ARTIFACT_URL=${INSTALL_K3S_ARTIFACT_URL:-https://github.com/joshmouch/k3s/releases/download}
 GITHUB_ART_URL=""
 DOWNLOADER=
 

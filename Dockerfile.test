@@ -10,5 +10,166 @@ COPY . ${K3S_SOURCE}
 
 FROM test-base AS test-mods
 
-COPY ./scripts/test-mods /bin/
-ENTRYPOINT ["/bin/test-mods"]
+COPY ./scripts/test-mods ./scripts/test-mods-test /bin/
+ENTRYPOINT ["/bin/test-mods-test"]
+
+
+# These stages exercise the Kubernetes packages selected by the real K3s module.
+FROM test-base AS kubernetes-test-base
+RUN apk -U --no-cache add build-base git
+ARG TARGETOS
+ARG TARGETARCH
+ARG KUBERNETES_TEST_PACKAGES
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+FROM kubernetes-test-base AS kubernetes-test-readiness
+ARG KUBERNETES_TEST_MEMORY_BYTES
+ARG KUBERNETES_TEST_CPU_PERIOD
+ARG KUBERNETES_TEST_CPU_QUOTA
+ARG KUBERNETES_RUN_ID
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    --mount=type=cache,id=gobuild-${TARGETOS}-${TARGETARCH},target=/root/.cache/go-build \
+    [[ ${KUBERNETES_RUN_ID:-} =~ ^[A-Za-z0-9_][A-Za-z0-9_.+-]*$ ]] && \
+    mkdir -p /out && \
+    printf '%s\n' "$KUBERNETES_RUN_ID" > /out/run-id.txt && \
+    { uname -a; cat /proc/self/cgroup; cat /proc/self/mountinfo; \
+      printf 'memory.max='; cat /sys/fs/cgroup/memory.max; \
+      printf 'memory.swap.max='; cat /sys/fs/cgroup/memory.swap.max; \
+      printf 'cpu.max='; cat /sys/fs/cgroup/cpu.max; } | tee /out/native-resource-readiness.log && \
+    test "$(cat /sys/fs/cgroup/memory.max)" = "$KUBERNETES_TEST_MEMORY_BYTES" && \
+    test "$(cat /sys/fs/cgroup/memory.swap.max)" = 0 && \
+    test "$(cat /sys/fs/cgroup/cpu.max)" = "$KUBERNETES_TEST_CPU_QUOTA $KUBERNETES_TEST_CPU_PERIOD" && \
+    test "$(go env GOHOSTOS)" = "$TARGETOS" && \
+    test "$(go env GOHOSTARCH)" = "$TARGETARCH" && \
+    test "$(go env CGO_ENABLED)" = 1 && \
+    go version | tee /out/go-version.txt && \
+    cc --version | tee /out/c-compiler-version.txt && \
+    go env -json GOHOSTOS GOHOSTARCH GOVERSION CGO_ENABLED CC CXX GOCACHE GOMODCACHE GOTOOLCHAIN > /out/go-env.json && \
+    bash scripts/test-mods-test | tee /out/module-policy-controls.log && \
+    go list -mod=readonly -m -json k8s.io/kubernetes k8s.io/kubelet k8s.io/api k8s.io/apimachinery k8s.io/client-go > /out/module-identities.json
+
+FROM scratch AS kubernetes-test-readiness-result
+COPY --from=kubernetes-test-readiness /out/ /
+
+# The selected logical module/version/replacement is owned by this go.mod.
+FROM kubernetes-test-base AS kubernetes-module-download
+ARG KUBERNETES_DOWNLOAD_MODULE
+ARG KUBERNETES_RUN_ID
+RUN --mount=type=bind,source=.,target=${K3S_SOURCE},readonly \
+    --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    [[ ${KUBERNETES_DOWNLOAD_MODULE:-} =~ ^[A-Za-z0-9_][A-Za-z0-9_./+-]*$ && ${KUBERNETES_DOWNLOAD_MODULE:-} != all && ${KUBERNETES_DOWNLOAD_MODULE:-} != *...* ]] && \
+    [[ ${KUBERNETES_RUN_ID:-} =~ ^[A-Za-z0-9_][A-Za-z0-9_.+-]*$ ]] && \
+    mkdir -p /out && \
+    printf '%s\n' "$KUBERNETES_DOWNLOAD_MODULE" > /out/module.txt && \
+    printf '%s\n' "$KUBERNETES_RUN_ID" > /out/run-id.txt && \
+    go version > /out/go-version.txt && \
+    go env -json GOVERSION GOMOD GOMODCACHE GOPROXY GOSUMDB GOTOOLCHAIN > /out/go-env.json && \
+    jq -e --arg mod "${K3S_SOURCE%/}/go.mod" '.GOMOD==$mod and .GOMODCACHE=="/go/pkg/mod"' /out/go-env.json > /dev/null && \
+    go mod download -json "$KUBERNETES_DOWNLOAD_MODULE" | tee /out/module-download.json && \
+    jq -e -s 'length==1 and (.[0].Error // "")=="" and (.[0].Dir | type=="string" and length>0)' \
+      /out/module-download.json > /out/module-download-complete.json
+
+FROM scratch AS kubernetes-module-download-result
+COPY --from=kubernetes-module-download /out/ /
+
+# Each cache acquisition is a normal Go package-address request from Go's own graph.
+FROM kubernetes-test-base AS kubernetes-package-cache
+ARG KUBERNETES_BUILD_PACKAGE
+ARG KUBERNETES_RUN_ID
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    --mount=type=cache,id=gobuild-${TARGETOS}-${TARGETARCH},target=/root/.cache/go-build \
+    [[ ${KUBERNETES_RUN_ID:-} =~ ^[A-Za-z0-9_][A-Za-z0-9_.+-]*$ ]] && \
+    [[ ${KUBERNETES_BUILD_PACKAGE:-} =~ ^[A-Za-z0-9_][A-Za-z0-9_./+-]*$ ]] && \
+    go build -mod=readonly -race -p 2 -o /dev/null "$KUBERNETES_BUILD_PACKAGE"
+
+# Go Stale may mean "not installed but available in build cache"; retain raw reasons.
+# Go owns normal build-cache metadata; explicit list flags prevent package compilation.
+# Source/gomod stay readonly, network is none; workdir and /out remain writable.
+# Prerequisite BuildKit stages retain their normal owners; missing inputs fail normally.
+FROM kubernetes-test-base AS kubernetes-cache-state
+ARG KUBERNETES_BUILD_PACKAGE
+ARG KUBERNETES_RUN_ID
+ARG KUBERNETES_TEST_GRAPH=false
+RUN --network=none \
+    --mount=type=bind,source=.,target=${K3S_SOURCE},readonly \
+    --mount=type=cache,id=gomod,target=/go/pkg/mod,readonly \
+    --mount=type=cache,id=gobuild-${TARGETOS}-${TARGETARCH},target=/root/.cache/go-build \
+    [[ ${KUBERNETES_BUILD_PACKAGE:-} =~ ^[A-Za-z0-9_][A-Za-z0-9_./+-]*$ ]] && \
+    [[ ${KUBERNETES_RUN_ID:-} =~ ^[A-Za-z0-9_][A-Za-z0-9_.+-]*$ ]] && \
+    [[ ${KUBERNETES_TEST_GRAPH-false} == false || ${KUBERNETES_TEST_GRAPH-false} == true ]] && \
+    mkdir -p /out && \
+    printf '%s\n' "$KUBERNETES_BUILD_PACKAGE" > /out/package.txt && \
+    printf '%s\n' "$KUBERNETES_RUN_ID" > /out/run-id.txt && \
+    go version > /out/go-version.txt && \
+    go env -json GOOS GOARCH GOHOSTOS GOHOSTARCH GOVERSION CGO_ENABLED CC CXX GOCACHE GOMODCACHE GOCACHEPROG GOFLAGS > /out/go-env.json && \
+    jq -e '.GOCACHE=="/root/.cache/go-build" and .GOMODCACHE=="/go/pkg/mod" and .GOCACHEPROG==""' /out/go-env.json > /dev/null && \
+    cc --version > /out/c-compiler-version.txt && \
+    test_flag=-test=false && fields=ImportPath,Stale,StaleReason,Imports,Deps,EmbedFiles && \
+    counts='{records:length,inputRecords:([.[]|select(.ImportPath==$package)]|length)}' && \
+    if [[ ${KUBERNETES_TEST_GRAPH-false} == true ]]; then \
+      test_flag=-test=true; fields+=,ForTest,TestGoFiles,XTestGoFiles,TestEmbedFiles,XTestEmbedFiles; \
+      counts='{records:length,inputRecords:([.[]|select(.ImportPath==$package and (.ForTest // "")=="")]|length),testGraph:true,forTestRecords:([.[]|select((.ForTest // "")!="")]|length),requestedForTestRecords:([.[]|select(.ForTest==$package)]|length)}'; \
+    fi && \
+    go list -mod=readonly -race -p 2 -export=false -compiled=false "$test_flag" -cover=false -deps \
+      "-json=$fields" "$KUBERNETES_BUILD_PACKAGE" > /out/cache-state.json && \
+    jq -e -s --arg package "$KUBERNETES_BUILD_PACKAGE" "$counts | select(.inputRecords==1)" \
+      /out/cache-state.json > /out/cache-state-counts.json
+
+FROM scratch AS kubernetes-cache-state-result
+COPY --from=kubernetes-cache-state /out/ /
+
+# Native test-binary construction has a separate admission from test execution.
+FROM kubernetes-test-base AS kubernetes-test-compile
+ARG KUBERNETES_TEST_PACKAGE
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    --mount=type=cache,id=gobuild-${TARGETOS}-${TARGETARCH},target=/root/.cache/go-build \
+    printf '%s\n' 'native-kubernetes-compile phase=prepare' >&2 && \
+    mkdir -p /out && \
+    test -n "$KUBERNETES_TEST_PACKAGE" && \
+    [[ " $KUBERNETES_TEST_PACKAGES " == *" $KUBERNETES_TEST_PACKAGE "* ]] && \
+    printf '%s\n' "$KUBERNETES_TEST_PACKAGE" > /out/packages.txt && \
+    go version > /out/go-version.txt && \
+    printf '%s\n' 'native-kubernetes-compile phase=module-identities' >&2 && \
+    go list -mod=readonly -m -json k8s.io/kubernetes k8s.io/kubelet k8s.io/api k8s.io/apimachinery k8s.io/client-go > /out/module-identities.json && \
+    printf '%s\n' 'native-kubernetes-compile phase=package-dir' >&2 && \
+    package_dir=$(go list -mod=readonly -f '{{.Dir}}' "$KUBERNETES_TEST_PACKAGE") && \
+    test -n "$package_dir" && \
+    printf '%s\n' "$package_dir" > /out/package-dir.txt && \
+    printf '%s\n' 'native-kubernetes-compile phase=go-test-c' >&2 && \
+    go test -mod=readonly -race -p 2 -c -o /out/package.test "$KUBERNETES_TEST_PACKAGE" && \
+    test -s /out/package.test && test -x /out/package.test && \
+    printf '%s\n' 'native-kubernetes-compile phase=complete' >&2
+
+FROM scratch AS kubernetes-test-compile-result
+COPY --from=kubernetes-test-compile /out/packages.txt /out/go-version.txt /out/module-identities.json /
+
+# Cacheable binary inventory is a separate native consumer of the immutable compile stage.
+FROM kubernetes-test-compile AS kubernetes-test-list
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    printf '%s\n' 'native-kubernetes-list phase=package-dir' >&2 && \
+    package_dir=$(cat /out/package-dir.txt) && \
+    test -n "$package_dir" && \
+    cd "$package_dir" && \
+    printf '%s\n' 'native-kubernetes-list phase=test-list' >&2 && \
+    /out/package.test -test.list=. > /out/test-list.txt && \
+    test -s /out/test-list.txt && \
+    printf '%s\n' 'native-kubernetes-list phase=complete' >&2
+
+FROM scratch AS kubernetes-test-list-result
+COPY --from=kubernetes-test-list /out/packages.txt /out/go-version.txt /out/module-identities.json /out/test-list.txt /
+
+FROM kubernetes-test-list AS kubernetes-test
+ARG KUBERNETES_TEST_RUN=.
+ARG KUBERNETES_RUN_ID
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    [[ ${KUBERNETES_RUN_ID:-} =~ ^[A-Za-z0-9_][A-Za-z0-9_.+-]*$ ]] && \
+    package_dir=$(cat /out/package-dir.txt) && \
+    test -n "$package_dir" && \
+    printf '%s\n' "$KUBERNETES_RUN_ID" > /out/run-id.txt && \
+    printf '%s\n' "$KUBERNETES_TEST_RUN" > /out/test-selection.txt && \
+    cd "$package_dir" && \
+    go tool test2json -p "$KUBERNETES_TEST_PACKAGE" -t /out/package.test \
+      -test.v=test2json -test.timeout=30s -test.count=1 -test.run "$KUBERNETES_TEST_RUN" | tee /out/go-test.json
+
+FROM scratch AS kubernetes-test-result
+COPY --from=kubernetes-test /out/packages.txt /out/go-version.txt /out/module-identities.json /out/test-list.txt /out/run-id.txt /out/test-selection.txt /out/go-test.json /

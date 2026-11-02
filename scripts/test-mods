@@ -1,10 +1,17 @@
 #!/bin/bash
-set -e -x
+set -euo pipefail
 
-res=$(go mod edit --json | jq -r '.Replace[] | select(.Old.Path | contains("k8s.io/")) | .New.Path' | grep -vE '^(k8s.io/|github.com/k3s-io/)' | wc -l)
-if [ $res -gt 0 ];then
-  echo "Incorrect kubernetes replacement fork in go.mod"
+# The selected core fork supplies this producer's native admission repair.
+# Other Kubernetes replacements retain the upstream staging/fork policy.
+if ! go mod edit --json "${1:-go.mod}" | jq -e '
+  any(.Replace[]?; .Old.Path == "k8s.io/kubernetes" and .New.Path == "github.com/joshmouch/kubernetes")
+  and all(.Replace[]? | select(.Old.Path | startswith("k8s.io/"));
+    if .Old.Path == "k8s.io/kubernetes" then
+      .New.Path == "github.com/joshmouch/kubernetes"
+    else
+      .New.Path | test("^(k8s\\.io/|github\\.com/k3s-io/)")
+    end)
+' >/dev/null; then
+  echo "Incorrect Kubernetes replacement producer in go.mod" >&2
   exit 1
-else
-  exit 0
 fi

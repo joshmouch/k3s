@@ -3,6 +3,8 @@
 set -ex
 
 cd $(dirname $0)/..
+component=${1:-all}
+case $component in all|runc|rootfs|containerd|charts|hcsshim) ;; *) echo "unknown download component: $component" >&2; exit 64 ;; esac
 
 . ./scripts/version.sh
 
@@ -15,24 +17,27 @@ DATA_DIR=build/data
 export TZ=UTC
 
 umask 022
-rm -rf ${CHARTS_DIR}
-rm -rf ${RUNC_DIR}
-rm -rf ${CONTAINERD_DIR}
-rm -rf ${HCSSHIM_DIR}
-mkdir -p ${CHARTS_DIR}
 mkdir -p ${DATA_DIR}
 
 case ${OS} in
   linux)
-    git clone --single-branch --branch=${VERSION_RUNC} --depth=1 https://github.com/opencontainers/runc ${RUNC_DIR}
+    if [[ $component == all || $component == runc ]]; then
+      rm -rf ${RUNC_DIR}
+      git clone --single-branch --branch=${VERSION_RUNC} --depth=1 https://github.com/opencontainers/runc ${RUNC_DIR}
+    fi
+    if [[ $component == all || $component == rootfs ]]; then
     K3S_ROOT_TAR="k3s-root-${ARCH}.tar"
     curl --compressed -sfL https://github.com/k3s-io/k3s-root/releases/download/${VERSION_ROOT}/${K3S_ROOT_TAR} -o ${K3S_ROOT_TAR}
     echo "${K3S_ROOT_SHA256}  ${K3S_ROOT_TAR}" | sha256sum -c
     tar xf "${K3S_ROOT_TAR}"
     rm -f "${K3S_ROOT_TAR}" sha256sum-${ARCH}.txt
+    fi
     ;;
   windows)
-    git clone --single-branch --branch=${VERSION_HCSSHIM} --depth=1 https://github.com/microsoft/hcsshim ${HCSSHIM_DIR}
+    if [[ $component == all || $component == hcsshim ]]; then
+      rm -rf ${HCSSHIM_DIR}
+      git clone --single-branch --branch=${VERSION_HCSSHIM} --depth=1 https://github.com/microsoft/hcsshim ${HCSSHIM_DIR}
+    fi
     ;;
   *)
     echo "[ERROR] unrecognized operating system: ${OS}"
@@ -40,9 +45,16 @@ case ${OS} in
     ;;
 esac
 
-git clone --single-branch --branch=${VERSION_CONTAINERD} --depth=1 https://${PKG_CONTAINERD_K3S%/v[0-9]*} ${CONTAINERD_DIR}
+if [[ $component == all || $component == containerd ]]; then
+  rm -rf ${CONTAINERD_DIR}
+  git clone --single-branch --branch=${VERSION_CONTAINERD} --depth=1 https://${PKG_CONTAINERD_K3S%/v[0-9]*} ${CONTAINERD_DIR}
+fi
 
+if [[ $component == all || $component == charts ]]; then
+rm -rf ${CHARTS_DIR}
+mkdir -p ${CHARTS_DIR}
 for CHART_FILE in $(grep -rlF HelmChart manifests/ | xargs yq eval --no-doc .spec.chart | xargs -n1 basename); do
   CHART_NAME=$(echo $CHART_FILE | grep -oE '^(-*[a-z])+')
   curl -sfL ${CHARTS_URL}/${CHART_NAME}/${CHART_FILE} -o ${CHARTS_DIR}/${CHART_FILE}
 done
+fi

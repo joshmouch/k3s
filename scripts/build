@@ -2,6 +2,12 @@
 set -e -x
 
 cd $(dirname $0)/..
+component=${1:-all}
+case $component in all|cni|k3s|containerd-shim|runc|windows-shims|graph|cache) ;; *) echo "unknown build component: $component" >&2; exit 64 ;; esac
+if [[ $component == cache ]]; then
+    [[ ${K3S_BUILD_PACKAGE:-} =~ ^[A-Za-z0-9_][A-Za-z0-9_./+-]*$ ]] \
+      || { echo "K3S_BUILD_PACKAGE must be one native Go package address" >&2; exit 64; }
+fi
 
 . ./scripts/version.sh
 
@@ -134,6 +140,7 @@ containerd_binaries=(
     "bin/runhcs"
 )
 
+if [[ $component == all || $component == k3s ]]; then
 for i in "${k3s_binaries[@]}"; do
     if [ -f "$i${BINARY_POSTFIX}" ]; then
         echo "Removing $i${BINARY_POSTFIX}"
@@ -141,12 +148,16 @@ for i in "${k3s_binaries[@]}"; do
     fi
 done
 
+fi
+if [[ $component == all ]]; then
 for i in "${containerd_binaries[@]}"; do
     if [ -f "$i${BINARY_POSTFIX}" ]; then
         echo "Removing $i${BINARY_POSTFIX}"
         rm -f "$i${BINARY_POSTFIX}"
     fi
 done
+
+fi
 
 cleanup() {
     exit_status=$?
@@ -155,7 +166,7 @@ cleanup() {
 }
 
 INSTALLBIN=$(pwd)/bin
-if [ ! -x ${INSTALLBIN}/cni${BINARY_POSTFIX} ]; then
+if [[ $component == all || $component == cni ]] && [ ! -x ${INSTALLBIN}/cni${BINARY_POSTFIX} ]; then
 (
     echo Building cni
     TMPDIR=$(mktemp -d)
@@ -170,20 +181,36 @@ if [ ! -x ${INSTALLBIN}/cni${BINARY_POSTFIX} ]; then
 )
 fi
 
+K3S_CGO_CFLAGS="-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_USE_ALLOCA=1"
+if [[ $component == all || $component == k3s || $component == graph || $component == cache ]]; then
+cp -av manifests/* pkg/deploy/embed/ >&2
+cp -av build/static/* pkg/static/embed/ >&2
+fi
+if [[ $component == graph ]]; then
+    CGO_CFLAGS="$K3S_CGO_CFLAGS" CGO_ENABLED=1 "${GO}" list -mod=readonly -tags "$TAGS" -deps -json ./cmd/server
+    exit
+fi
+if [[ $component == cache ]]; then
+    CGO_CFLAGS="$K3S_CGO_CFLAGS" CGO_ENABLED=1 "${GO}" build -mod=readonly -p 2 -o /dev/null -tags "$TAGS" -gcflags="all=${GCFLAGS}" "$K3S_BUILD_PACKAGE"
+    exit
+fi
+
+if [[ $component == all || $component == k3s ]]; then
 echo Building k3s
-cp -av manifests/* pkg/deploy/embed/
-cp -av build/static/* pkg/static/embed/
-CGO_CFLAGS="-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_USE_ALLOCA=1" \
+CGO_CFLAGS="$K3S_CGO_CFLAGS" \
 CGO_ENABLED=1 "${GO}" build $BLDFLAGS -tags "$TAGS" -buildvcs=false -gcflags="all=${GCFLAGS}" -ldflags "$VERSIONFLAGS $LDFLAGS $STATIC" -o bin/k3s${BINARY_POSTFIX} ./cmd/server
 
 for i in "${k3s_binaries[@]}"; do
     ln -s "k3s${BINARY_POSTFIX}" "$i${BINARY_POSTFIX}"
 done
 
+fi
+
 export GOPATH=$(pwd)/build
 
 case ${OS} in
   linux)
+    if [[ $component == all || $component == containerd-shim ]]; then
     echo Building containerd-shim
     pushd ./build/src/github.com/containerd/containerd
     TAGS="${TAGS/netcgo/netgo}"
@@ -191,12 +218,15 @@ case ${OS} in
     popd
     cp -vf ./build/src/github.com/containerd/containerd/bin/* ./bin/
 
+    fi
+    if [[ $component == all || $component == runc ]]; then
     echo Building runc
     pushd ./build/src/github.com/opencontainers/runc
     rm -f runc
     make GO="${GO}" EXTRA_FLAGS="-gcflags=\"all=${GCFLAGS}\"" EXTRA_LDFLAGS="$LDFLAGS" BUILDTAGS="$RUNC_TAGS" $RUNC_STATIC
     popd
     cp -vf ./build/src/github.com/opencontainers/runc/runc ./bin/
+    fi
     ;;
   windows)
     if [ "${ARCH}" != "amd64" ]; then
@@ -204,6 +234,7 @@ case ${OS} in
       exit 1
     fi
 
+    if [[ $component == all || $component == windows-shims ]]; then
     echo Building containerd-shim-runhcs-v1
     pushd ./build/src/github.com/microsoft/hcsshim
     TAGS="${TAGS/netcgo/netgo}"
@@ -211,6 +242,7 @@ case ${OS} in
     CGO_ENABLED=0 "${GO}" build -tags "$TAGS" -ldflags "$VERSIONFLAGS $LDFLAGS $STATIC" -o bin/runhcs${BINARY_POSTFIX} ./cmd/runhcs
     popd
     cp -vf ./build/src/github.com/microsoft/hcsshim/bin/*${BINARY_POSTFIX} ./bin/
+    fi
     ;;
   *)
     echo "[ERROR] unrecognized opertaing system: ${OS}"

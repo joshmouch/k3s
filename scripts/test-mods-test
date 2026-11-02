@@ -1,0 +1,35 @@
+#!/bin/bash
+set -euo pipefail
+
+validator=$(cd "$(dirname "$0")" && pwd)/test-mods
+mod_file=${1:-go.mod}
+temporary_root=$(cd "${TMPDIR:-/tmp}" && pwd -P)
+temporary=$(mktemp -d "$temporary_root/k3s-test-mods.XXXXXXXX")
+[[ $temporary == "$temporary_root"/k3s-test-mods.* ]]
+trap 'rm -rf "$temporary"' EXIT
+
+"$validator" "$mod_file"
+echo "PASS selected core producer and upstream staging replacements"
+expect_rejected() {
+  if "$validator" "$1"; then
+    echo "FAIL unexpected producer accepted: $2" >&2
+    return 1
+  fi
+  echo "PASS rejected $2"
+}
+cp "$mod_file" "$temporary/foreign-core.mod"
+go mod edit -replace=k8s.io/kubernetes=example.com/foreign/kubernetes@v1.36.5-k3s1 "$temporary/foreign-core.mod"
+expect_rejected "$temporary/foreign-core.mod" "foreign core fork"
+cp "$mod_file" "$temporary/unpatched-core.mod"
+go mod edit -replace=k8s.io/kubernetes=github.com/k3s-io/kubernetes@v1.36.5-k3s1 "$temporary/unpatched-core.mod"
+expect_rejected "$temporary/unpatched-core.mod" "unselected core producer"
+cp "$mod_file" "$temporary/missing-core.mod"
+go mod edit -dropreplace=k8s.io/kubernetes "$temporary/missing-core.mod"
+expect_rejected "$temporary/missing-core.mod" "missing core replacement"
+cp "$mod_file" "$temporary/foreign-staging.mod"
+go mod edit -replace=k8s.io/kubelet=example.com/foreign/kubelet@v1.36.5-k3s1 "$temporary/foreign-staging.mod"
+expect_rejected "$temporary/foreign-staging.mod" "foreign staging fork"
+cp "$mod_file" "$temporary/ordinary.mod"
+go mod edit -replace=example.com/ordinary=example.com/ordinary-fork@v1.0.0 "$temporary/ordinary.mod"
+"$validator" "$temporary/ordinary.mod"
+echo "PASS ordinary non-Kubernetes replacement remains independent"

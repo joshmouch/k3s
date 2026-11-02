@@ -6,3 +6,4 @@
 ./.dapper
 ./.trash-cache
 ./.git/objects/pack
+./dist/native-kubernetes-tests

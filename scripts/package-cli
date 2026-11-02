@@ -2,11 +2,14 @@
 set -e -x
 
 cd $(dirname $0)/..
+component=${1:-all}
+case $component in all|prepare|compress|binary) ;; *) echo "unknown package component: $component" >&2; exit 64 ;; esac
 
 . ./scripts/version.sh
 
 GO=${GO-go}
 
+if [[ $component == all || $component == prepare ]]; then
 for i in containerd crictl kubectl k3s-agent k3s-server k3s-token k3s-etcd-snapshot k3s-secrets-encrypt k3s-certificate k3s-completion; do
     rm -f bin/$i${BINARY_POSTFIX}
     ln -s k3s${BINARY_POSTFIX} bin/$i${BINARY_POSTFIX}
@@ -55,13 +58,18 @@ mkdir -p ./etc
 )
 
 # Ensure the embedded tarball is reproducible: sort file order and clamp timestamps
-DATA_TAR_ZST=./build/out/data-${OS}-${ARCH}.tar.zst
 tar --sort=name --mtime=@0 -cvf ./build/out/data-${OS}.tar ./bin ./etc
+fi
+DATA_TAR_ZST=./build/out/data-${OS}-${ARCH}.tar.zst
+if [[ $component == all || $component == compress ]]; then
 zstd --no-progress -T0 -16 -f --long=25 --rm ./build/out/data-${OS}.tar -o ${DATA_TAR_ZST}
 HASH=$(sha256sum ${DATA_TAR_ZST} | awk '{print $1}')
 
 cp ${DATA_TAR_ZST} ./build/data/${HASH}.tar.zst
 
+fi
+
+if [[ $component == all || $component == binary ]]; then
 CMD_NAME=dist/artifacts/k3s${BIN_SUFFIX}${BINARY_POSTFIX}
 
 LDFLAGS="
@@ -77,3 +85,4 @@ CGO_ENABLED=0 "${GO}" build -tags "$TAGS" -buildvcs=false -ldflags "$LDFLAGS $ST
 stat ${CMD_NAME}
 
 ./scripts/build-upload ${CMD_NAME} ${COMMIT}
+fi

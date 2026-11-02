@@ -1,0 +1,130 @@
+{
+  "$schema": "ai-fleet/tool-execution-policy/v1",
+  "rules": [
+    {
+      "name": "k3s-native-module-construction",
+      "match": {
+        "toolName": "ai_fleet_execution",
+        "executor": "process",
+        "operation": "execute",
+        "platform": "darwin",
+        "tty": false,
+        "background": false,
+        "providerTimeout": false,
+        "inputDisposition": "observe-closed",
+        "inputFacts": {
+          "workdir": "/Users/josh/Code/joshmouch/k3s"
+        },
+        "commandRegex": "^/usr/bin/env GOTOOLCHAIN=go[0-9]+[.][0-9]+[.][0-9]+ /usr/bin/make deps$"
+      },
+      "mode": "bounded",
+      "executorBinding": "with-limits/ai-fleet-execution-darwin",
+      "deadlineMilliseconds": 40000,
+      "cleanupMilliseconds": 2000,
+      "maxOutputMegabytes": 64,
+      "memoryMegabytes": 2048,
+      "cpuCores": 2,
+      "timeoutExplanation": "One closed native K3s owner segment. The caller retains a total <=60-second transport, payload and cleanup envelope. Dependency acquisition, cache compilation, owner test-binary construction, uncached test execution and native binary stages are separately admitted; a timeout is terminal and requires diagnosis, not a raised wall or blind replay. Native Go and existing BuildKit caches own reuse and native solve cancellation owns remote cleanup; actual cleanup remains separate evidence."
+    },
+    {
+      "name": "k3s-native-construction-segments",
+      "match": {
+        "toolName": "ai_fleet_execution",
+        "executor": "process",
+        "operation": "execute",
+        "platform": "darwin",
+        "tty": false,
+        "background": false,
+        "providerTimeout": false,
+        "inputDisposition": "observe-closed",
+        "inputFacts": {
+          "workdir": "/Users/josh/Code/joshmouch/k3s"
+        },
+        "commandRegex": "^/usr/bin/env BUILDX_BUILDER=ai-fleet-cluster /usr/bin/make (?:kubernetes-test-(?:base|(?:compile|list)-(?:admission|plugin|device-manager|allocation|kubelet|cronjob|images))|kubernetes-test-readiness KUBERNETES_RUN_ID=[A-Za-z0-9_][A-Za-z0-9_.+-]*|kubernetes-module-download KUBERNETES_DOWNLOAD_MODULE=[A-Za-z0-9_][A-Za-z0-9_./+-]* KUBERNETES_RUN_ID=[A-Za-z0-9_][A-Za-z0-9_.+-]*|kubernetes-cache-packages KUBERNETES_BUILD_PACKAGE=[A-Za-z0-9_][A-Za-z0-9_./+-]* KUBERNETES_RUN_ID=[A-Za-z0-9_][A-Za-z0-9_.+-]*|kubernetes-cache-state KUBERNETES_BUILD_PACKAGE=[A-Za-z0-9_][A-Za-z0-9_./+-]* KUBERNETES_RUN_ID=[A-Za-z0-9_][A-Za-z0-9_.+-]*(?: KUBERNETES_TEST_GRAPH=true)?|binary-(?:infra|deps-runc|deps-rootfs|deps-containerd|deps-charts|cni|server|shim|runc|package-prepare|package-compress|package-cli|export|package-graph)|binary-cache-packages K3S_BUILD_PACKAGE=[A-Za-z0-9_][A-Za-z0-9_./+-]* KUBERNETES_RUN_ID=[A-Za-z0-9_][A-Za-z0-9_.+-]*)$"
+      },
+      "mode": "bounded",
+      "executorBinding": "with-limits/ai-fleet-execution-darwin",
+      "deadlineMilliseconds": 40000,
+      "cleanupMilliseconds": 2000,
+      "maxOutputMegabytes": 64,
+      "memoryMegabytes": 2048,
+      "cpuCores": 2,
+      "timeoutExplanation": "One closed native K3s owner segment. The caller retains a total <=60-second transport, payload and cleanup envelope. Dependency acquisition, cache compilation, owner test-binary construction, uncached test execution and native binary stages are separately admitted; a timeout is terminal and requires diagnosis, not a raised wall or blind replay. Native Go and existing BuildKit caches own reuse and native solve cancellation owns remote cleanup; actual cleanup remains separate evidence."
+    },
+    {
+      "name": "k3s-kubernetes-native-owner-tests",
+      "match": {
+        "toolName": "ai_fleet_execution",
+        "executor": "process",
+        "operation": "execute",
+        "platform": "darwin",
+        "tty": false,
+        "background": false,
+        "providerTimeout": false,
+        "inputDisposition": "observe-closed",
+        "inputFacts": {
+          "workdir": "/Users/josh/Code/joshmouch/k3s"
+        },
+        "commandRegex": "^/usr/bin/env BUILDX_BUILDER=ai-fleet-cluster /usr/bin/make kubernetes-test-(?:admission|plugin|device-manager|allocation|kubelet|cronjob|images)(?: KUBERNETES_TEST_RUN=[A-Za-z0-9_.*+?^()|/{}\\[\\]-]+(?:[$][$])?)? KUBERNETES_RUN_ID=[A-Za-z0-9_][A-Za-z0-9_.+-]*$"
+      },
+      "mode": "bounded",
+      "executorBinding": "with-limits/ai-fleet-execution-darwin",
+      "deadlineMilliseconds": 40000,
+      "cleanupMilliseconds": 2000,
+      "maxOutputMegabytes": 64,
+      "memoryMegabytes": 2048,
+      "cpuCores": 2,
+      "timeoutExplanation": "One closed native K3s owner segment. The caller retains a total <=60-second transport, payload and cleanup envelope. Dependency acquisition, cache compilation, owner test-binary construction, uncached test execution and native binary stages are separately admitted; a timeout is terminal and requires diagnosis, not a raised wall or blind replay. Native Go and existing BuildKit caches own reuse and native solve cancellation owns remote cleanup; actual cleanup remains separate evidence."
+    },
+    {
+      "name": "k3s-kubernetes-native-assembled-tests",
+      "match": {
+        "toolName": "ai_fleet_execution",
+        "executor": "process",
+        "operation": "execute",
+        "platform": "darwin",
+        "tty": false,
+        "background": false,
+        "providerTimeout": false,
+        "inputDisposition": "observe-closed",
+        "inputFacts": {
+          "workdir": "/Users/josh/Code/joshmouch/k3s"
+        },
+        "commandRegex": "^/usr/bin/env BUILDX_BUILDER=ai-fleet-cluster /usr/bin/make kubernetes-test-assembled-(?:admission|plugin|device-manager|allocation|kubelet|cronjob|images)(?: KUBERNETES_TEST_RUN=[A-Za-z0-9_.*+?^()|/{}\\[\\]-]+(?:[$][$])?)? KUBERNETES_RUN_ID=[A-Za-z0-9_][A-Za-z0-9_.+-]*$"
+      },
+      "mode": "bounded",
+      "executorBinding": "with-limits/ai-fleet-execution-darwin",
+      "deadlineMilliseconds": 40000,
+      "cleanupMilliseconds": 2000,
+      "maxOutputMegabytes": 64,
+      "memoryMegabytes": 2048,
+      "cpuCores": 2,
+      "timeoutExplanation": "One closed native K3s owner segment. The caller retains a total <=60-second transport, payload and cleanup envelope. Dependency acquisition, cache compilation, owner test-binary construction, uncached test execution and native binary stages are separately admitted; a timeout is terminal and requires diagnosis, not a raised wall or blind replay. Native Go and existing BuildKit caches own reuse and native solve cancellation owns remote cleanup; actual cleanup remains separate evidence."
+    },
+    {
+      "name": "k3s-kubernetes-plugin-outline",
+      "match": {
+        "toolName": "ai_fleet_execution",
+        "executor": "process",
+        "operation": "execute",
+        "platform": "darwin",
+        "tty": false,
+        "background": false,
+        "providerTimeout": false,
+        "inputDisposition": "observe-closed",
+        "inputFacts": {
+          "workdir": "/Users/josh/Code/joshmouch/k3s"
+        },
+        "commandRegex": "^/usr/bin/env BUILDX_BUILDER=ai-fleet-cluster /usr/bin/make kubernetes-test-outline-plugin KUBERNETES_RUN_ID=[A-Za-z0-9_][A-Za-z0-9_.+-]*$"
+      },
+      "mode": "bounded",
+      "executorBinding": "conflux-bounded-process/ai-fleet-execution-darwin",
+      "deadlineMilliseconds": 20000,
+      "cleanupMilliseconds": 1000,
+      "maxOutputMegabytes": 16,
+      "memoryMegabytes": 512,
+      "cpuCores": 2,
+      "timeoutExplanation": "One selected plugin frontend outline through normal Buildx, with a 20-second payload and one-second cleanup inside the caller total <=60-second transport envelope. It can resolve Dockerfile/session/base-image metadata; it does not execute the product RUN graph or export compiled/test artifacts. A timeout is a terminal diagnostic result, not a reason to replay or raise its wall."
+    }
+  ]
+}
