@@ -16,6 +16,22 @@ NATIVE_SELECTOR_REFUSALS = ('', 'Test name', 'Test;echo', 'Test$(shell echo)', '
 
 
 class NativeSegments(NativeSegmentFixture):
+    def test_sdk_preparation_precedes_volatile_source_staging(self):
+        dockerfile=(SOURCE/'Dockerfile.test').read_text()
+        base=dockerfile.split('FROM ${GOLANG} AS test-base\n',1)[1].split('\nFROM ',1)[0]
+        sdk=dockerfile.split('FROM test-base AS kubernetes-test-base\n',1)[1].split('\nFROM ',1)[0]
+        mods=dockerfile.split('FROM test-base AS test-mods\n',1)[1].split('\nFROM ',1)[0]
+        # A whole-source copy in an ancestor also invalidates the child SDK layer.
+        self.assertNotRegex(base,r'(?m)^(?:COPY|ADD)\s|--mount=type=bind')
+        self.assertEqual(re.findall(r'(?m)^RUN apk[^\n]*',base),['RUN apk -U --no-cache add bash jq'])
+        self.assertEqual(re.findall(r'(?m)^RUN apk[^\n]*',sdk),['RUN apk -U --no-cache add build-base git'])
+        self.assertLess(sdk.index('RUN apk -U --no-cache add build-base git'),sdk.index('COPY . ${K3S_SOURCE}'))
+        for consumer in [sdk,mods]:
+            self.assertEqual(re.findall(r'(?m)^COPY \. [^\n]*',consumer),['COPY . ${K3S_SOURCE}'])
+        self.assertLess(mods.index('COPY . ${K3S_SOURCE}'),mods.index('COPY ./scripts/test-mods ./scripts/test-mods-test /bin/'))
+        self.assertIn('ENTRYPOINT ["/bin/test-mods-test"]',mods)
+        self.assertIn('ENV K3S_SOURCE=/go/src/github.com/k3s-io/k3s/\nWORKDIR ${K3S_SOURCE}',base)
+
     def test_real_make_keeps_six_focus_and_assembled_package_denominators(self):
         rules=json.loads((SOURCE/'.ai-fleet/tool-execution-policy.json').read_text())['rules']
         patterns={r['name']:r['match']['commandRegex'] for r in rules}

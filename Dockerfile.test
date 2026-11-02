@@ -6,10 +6,9 @@ RUN apk -U --no-cache add bash jq
 ENV K3S_SOURCE=/go/src/github.com/k3s-io/k3s/
 WORKDIR ${K3S_SOURCE}
 
-COPY . ${K3S_SOURCE}
-
 FROM test-base AS test-mods
 
+COPY . ${K3S_SOURCE}
 COPY ./scripts/test-mods ./scripts/test-mods-test /bin/
 ENTRYPOINT ["/bin/test-mods-test"]
 
@@ -17,6 +16,7 @@ ENTRYPOINT ["/bin/test-mods-test"]
 # These stages exercise the Kubernetes packages selected by the real K3s module.
 FROM test-base AS kubernetes-test-base
 RUN apk -U --no-cache add build-base git
+COPY . ${K3S_SOURCE}
 ARG TARGETOS
 ARG TARGETARCH
 ARG KUBERNETES_TEST_PACKAGES

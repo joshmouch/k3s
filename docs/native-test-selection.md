@@ -86,3 +86,13 @@ their unchanged limits, and rejects malformed schemas, fields, bindings and
 selector/argv near misses. This is a source-input control; it creates no finite
 operation and supplies no native execution or cleanup authority. The original
 17 fixture methods remain, giving 18 methods with this coupled control.
+
+The existing `test-base` stage owns the selected Go image, common shell tools, and
+source working directory. Source enters the two consumers separately: `test-mods`
+copies it before its module-policy entrypoint, while `kubernetes-test-base` installs
+the C toolchain and Git before copying it. A source-only change therefore does not
+parent the native SDK installation. This stage ordering preserves the same SDK,
+APK commands, package selection, race flags, and test population. It removes an
+avoidable construction dependency; it does not establish a test-duration bound or
+explain an earlier execution's termination. The permanent source-owner control is
+`NativeSegments.test_sdk_preparation_precedes_volatile_source_staging`.
