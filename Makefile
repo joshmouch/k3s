@@ -145,19 +145,22 @@ KUBERNETES_ALLOCATION_PACKAGE := k8s.io/kubernetes/pkg/kubelet/allocation
 KUBERNETES_KUBELET_PACKAGE := k8s.io/kubernetes/pkg/kubelet
 KUBERNETES_CRONJOB_PACKAGE := k8s.io/kubernetes/pkg/controller/cronjob
 KUBERNETES_IMAGES_PACKAGE := k8s.io/kubernetes/pkg/kubelet/images
-KUBERNETES_TEST_PACKAGES := $(KUBERNETES_ADMISSION_PACKAGE) $(KUBERNETES_PLUGIN_PACKAGE) $(KUBERNETES_DEVICE_PACKAGE) $(KUBERNETES_ALLOCATION_PACKAGE) $(KUBERNETES_KUBELET_PACKAGE) $(KUBERNETES_CRONJOB_PACKAGE) $(KUBERNETES_IMAGES_PACKAGE)
+KUBERNETES_CONTAINER_MANAGER_PACKAGE := k8s.io/kubernetes/pkg/kubelet/cm
+KUBERNETES_NODE_STATUS_PACKAGE := k8s.io/kubernetes/pkg/kubelet/nodestatus
+KUBERNETES_KUBE_RUNTIME_PACKAGE := k8s.io/kubernetes/pkg/kubelet/kuberuntime
+KUBERNETES_TEST_PACKAGES := $(KUBERNETES_ADMISSION_PACKAGE) $(KUBERNETES_PLUGIN_PACKAGE) $(KUBERNETES_DEVICE_PACKAGE) $(KUBERNETES_ALLOCATION_PACKAGE) $(KUBERNETES_KUBELET_PACKAGE) $(KUBERNETES_CRONJOB_PACKAGE) $(KUBERNETES_IMAGES_PACKAGE) $(KUBERNETES_CONTAINER_MANAGER_PACKAGE) $(KUBERNETES_NODE_STATUS_PACKAGE) $(KUBERNETES_KUBE_RUNTIME_PACKAGE)
 KUBERNETES_TEST_MEMORY_BYTES := 12884901888
 KUBERNETES_TEST_CPU_PERIOD := 100000
 KUBERNETES_TEST_CPU_QUOTA := 400000
 KUBERNETES_TEST_PLATFORM := linux/amd64
 KUBERNETES_TEST_RESOURCES = --resource memory=$(KUBERNETES_TEST_MEMORY_BYTES) --resource memory-swap=$(KUBERNETES_TEST_MEMORY_BYTES) --resource cpu-period=$(KUBERNETES_TEST_CPU_PERIOD) --resource cpu-quota=$(KUBERNETES_TEST_CPU_QUOTA)
 KUBERNETES_TEST_OUTPUT = dist/native-kubernetes-tests/$@
-KUBERNETES_FOCUS_TARGETS := kubernetes-test-admission kubernetes-test-plugin kubernetes-test-device-manager kubernetes-test-allocation kubernetes-test-kubelet kubernetes-test-cronjob kubernetes-test-images
+KUBERNETES_FOCUS_TARGETS := kubernetes-test-admission kubernetes-test-plugin kubernetes-test-device-manager kubernetes-test-allocation kubernetes-test-kubelet kubernetes-test-cronjob kubernetes-test-images kubernetes-test-container-manager kubernetes-test-node-status kubernetes-test-kube-runtime
 
 
 KUBERNETES_CACHE_TARGETS := kubernetes-cache-packages kubernetes-cache-state
 KUBERNETES_TEST_GRAPH ?= false
-KUBERNETES_OWNER_NAMES := admission plugin device-manager allocation kubelet cronjob images
+KUBERNETES_OWNER_NAMES := admission plugin device-manager allocation kubelet cronjob images container-manager node-status kube-runtime
 KUBERNETES_COMPILE_TARGETS := $(addprefix kubernetes-test-compile-,$(KUBERNETES_OWNER_NAMES))
 KUBERNETES_LIST_TARGETS := $(addprefix kubernetes-test-list-,$(KUBERNETES_OWNER_NAMES))
 KUBERNETES_ASSEMBLED_TARGETS := $(addprefix kubernetes-test-assembled-,$(KUBERNETES_OWNER_NAMES))
@@ -220,12 +223,18 @@ kubernetes-test-allocation kubernetes-test-compile-allocation kubernetes-test-li
 kubernetes-test-kubelet kubernetes-test-compile-kubelet kubernetes-test-list-kubelet kubernetes-test-assembled-kubelet: KUBERNETES_TEST_PACKAGE := $(KUBERNETES_KUBELET_PACKAGE)
 kubernetes-test-cronjob kubernetes-test-compile-cronjob kubernetes-test-list-cronjob kubernetes-test-assembled-cronjob: KUBERNETES_TEST_PACKAGE := $(KUBERNETES_CRONJOB_PACKAGE)
 kubernetes-test-images kubernetes-test-compile-images kubernetes-test-list-images kubernetes-test-assembled-images: KUBERNETES_TEST_PACKAGE := $(KUBERNETES_IMAGES_PACKAGE)
+kubernetes-test-container-manager kubernetes-test-compile-container-manager kubernetes-test-list-container-manager kubernetes-test-assembled-container-manager: KUBERNETES_TEST_PACKAGE := $(KUBERNETES_CONTAINER_MANAGER_PACKAGE)
+kubernetes-test-node-status kubernetes-test-compile-node-status kubernetes-test-list-node-status kubernetes-test-assembled-node-status: KUBERNETES_TEST_PACKAGE := $(KUBERNETES_NODE_STATUS_PACKAGE)
+kubernetes-test-kube-runtime kubernetes-test-compile-kube-runtime kubernetes-test-list-kube-runtime kubernetes-test-assembled-kube-runtime: KUBERNETES_TEST_PACKAGE := $(KUBERNETES_KUBE_RUNTIME_PACKAGE)
 kubernetes-test-admission kubernetes-test-plugin kubernetes-test-outline-plugin: KUBERNETES_TEST_RUN := Test
 kubernetes-test-device-manager: KUBERNETES_TEST_RUN := TestDeviceInventory|TestDevicesToAllocate|TestCheckpoint
 kubernetes-test-allocation: KUBERNETES_TEST_RUN := TestDeferredAdmission|TestAddPod|TestCanAdmitPod
-kubernetes-test-kubelet: KUBERNETES_TEST_RUN := TestDeferredAdmission|TestKubelet_HandlePodCleanups|TestHandlePodCleanups|TestHandlePluginResources
+kubernetes-test-kubelet: KUBERNETES_TEST_RUN := TestDeferredAdmission|TestKubelet_HandlePodCleanups|TestHandlePodCleanups|TestHandlePluginResources|TestMachineInfoUsesCadvisorRefresh
 kubernetes-test-cronjob: KUBERNETES_TEST_RUN := TestDeleteJob|TestRealJobControlDelete
 kubernetes-test-images: KUBERNETES_TEST_RUN := ^(TestDetectImagesContainerDisappearsBetweenListAndStatus|TestDetectImagesContainerStatusErrorsRemainFailures|TestDetectImagesImageVolumeDisabledDoesNotQueryStatus)$$
+kubernetes-test-container-manager: KUBERNETES_TEST_RUN := TestReconcileMemoryCapacity|TestNodeAllocatableRetryUsesReconciledMemory|TestReconciledMemoryReservationAndEnforcement|TestMemoryCapacityRetriesFailedEnforcement|TestMemoryReservationUsesProvidedSnapshot
+kubernetes-test-node-status: KUBERNETES_TEST_RUN := TestMachineInfo
+kubernetes-test-kube-runtime: KUBERNETES_TEST_RUN := TestContainerResourceCalculationUsesCurrentMachineInfo
 $(KUBERNETES_ASSEMBLED_TARGETS): KUBERNETES_TEST_RUN := .
 
 $(KUBERNETES_COMPILE_TARGETS): KUBERNETES_CONSTRUCTION_STAGE := kubernetes-test-compile-result

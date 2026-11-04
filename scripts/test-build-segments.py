@@ -433,11 +433,11 @@ class NativeSegments(NativeSegmentFixture):
         self.assertTrue(owner and Path(owner).is_file(),'TEST_POLICY_OWNER_PACKAGE_JSON must name the installed policy package')
         js=r"""import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';import {readFileSync} from 'node:fs';import {pathToFileURL} from 'node:url';import {createHash} from 'node:crypto';
-const [file,owner,cwd,invalidJSON]=process.argv.slice(1),req=createRequire(owner);
+const [file,owner,cwd,invalidJSON,ownersJSON]=process.argv.slice(1),req=createRequire(owner);
 const parserPath=req.resolve('@ai-fleet/tool-execution-runtime-node/policy-parse'),selectorPath=req.resolve('@ai-fleet/tool-execution-runtime-node/output-run-policy');
 const {parseToolExecutionPolicy}=await import(pathToFileURL(parserPath).href),{selectAiFleetExecutionPolicy}=await import(pathToFileURL(selectorPath).href);
 const raw=JSON.parse(readFileSync(file,'utf8')),policy=parseToolExecutionPolicy(raw),base=['/usr/bin/env','BUILDX_BUILDER=ai-fleet-cluster','/usr/bin/make'];
-const owners=['admission','plugin','device-manager','allocation','kubelet','cronjob','images'];
+const owners=JSON.parse(ownersJSON);
 const expected=['k3s-native-module-construction','k3s-native-construction-segments','k3s-kubernetes-native-owner-tests','k3s-kubernetes-native-assembled-tests','k3s-kubernetes-plugin-outline'];
 assert.deepEqual(policy.rules.map(r=>r.name),expected);
 function select(a){return selectAiFleetExecutionPolicy({policy,policySource:file,platform:'darwin',command:a.join(' '),cwd,invocation:{executable:a[0],argv:a.slice(1)}});}
@@ -454,10 +454,10 @@ const missing={...raw};delete missing.$schema;assert.throws(()=>parseToolExecuti
 for(let i=0;i<raw.rules.length;i++){const p=structuredClone(raw);p.rules[i].executorBinding='uninstalled-policy-control-binding';assert.throws(()=>parseToolExecutionPolicy(p));}
 console.log(JSON.stringify({kind:'canonical-public-policy-component-control',node:process.execPath,nodeVersion:process.version,owner,parserPath,parserSHA256:createHash('sha256').update(readFileSync(parserPath)).digest('hex'),selectorPath,selectorSHA256:createHash('sha256').update(readFileSync(selectorPath)).digest('hex'),parsedRuleCount:policy.rules.length,selected,negativeCount,missingSchemaRejected:true,unknownFieldsRejected:true,unknownBindingsRejected:raw.rules.length,nativeAdmission:false}));
 """
-        result=self.run_command(node,'--input-type=module','-e',js,str(SOURCE/'.ai-fleet/tool-execution-policy.json'),owner,str(SOURCE),json.dumps(NATIVE_SELECTOR_REFUSALS))
+        result=self.run_command(node,'--input-type=module','-e',js,str(SOURCE/'.ai-fleet/tool-execution-policy.json'),owner,str(SOURCE),json.dumps(NATIVE_SELECTOR_REFUSALS),json.dumps(list(OWNERS)))
         self.assertEqual(result.returncode,0,result.stderr)
         value=json.loads(result.stdout);self.assertEqual(value['parsedRuleCount'],5)
-        self.assertEqual(len(value['selected']),31);self.assertEqual(value['negativeCount'],28)
+        self.assertEqual(len(value['selected']),3+4*len(OWNERS));self.assertEqual(value['negativeCount'],28)
         self.assertFalse(value['nativeAdmission']);print(result.stdout,end='')
 
 
