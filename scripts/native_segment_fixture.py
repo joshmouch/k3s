@@ -19,6 +19,9 @@ OWNERS = {
     "kubelet": "k8s.io/kubernetes/pkg/kubelet",
     "cronjob": "k8s.io/kubernetes/pkg/controller/cronjob",
     "images": "k8s.io/kubernetes/pkg/kubelet/images",
+    "container-manager": "k8s.io/kubernetes/pkg/kubelet/cm",
+    "node-status": "k8s.io/kubernetes/pkg/kubelet/nodestatus",
+    "kube-runtime": "k8s.io/kubernetes/pkg/kubelet/kuberuntime",
 }
 
 

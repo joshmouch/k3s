@@ -96,3 +96,27 @@ APK commands, package selection, race flags, and test population. It removes an
 avoidable construction dependency; it does not establish a test-duration bound or
 explain an earlier execution's termination. The permanent source-owner control is
 `NativeSegments.test_sdk_preparation_precedes_volatile_source_staging`.
+
+
+### Dynamic-memory repair owner coverage
+
+The existing native owner population additionally includes `container-manager`
+(`pkg/kubelet/cm`), `node-status` (`pkg/kubelet/nodestatus`), and `kube-runtime`
+(`pkg/kubelet/kuberuntime`). Each uses the same normal compile, list, focused and
+assembled targets and unchanged finite policy/resource classes. The seven prior
+owners, their complete suites and the Kubelet 176-test obligation remain present.
+The Kubelet focus also includes `TestMachineInfoUsesCadvisorRefresh`.
+
+These source controls require a normally published immutable Kubernetes module
+containing the memory repair before native Go acceptance. The existing fleet10
+module and old results do not become acceptance of new code merely because a new
+owner target is available. Fork publication, named-module authentication, K3s
+construction and live server/agent adoption remain separate normal lifecycle
+outcomes. No source label or logical run ID supplies native execution authority.
+
+The repair projects physical memory from cAdvisor's existing refreshed cache,
+while ContainerManager accepts memory for admission/cgroup enforcement. Static
+NUMA policy retains its checkpointed topology capacity. The existing Hyper-V
+memory-floor/timer workaround must be reconciled by its normal node lifecycle
+owner when the corrected binary is adopted; this source change neither deploys
+nor removes that workaround on a running old binary.
